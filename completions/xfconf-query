@@ -1,0 +1,144 @@
+#!/hint/bash -efu
+
+#
+# Bash programmable completion rules for xfconf-query
+#
+
+# Copyright (C) 2018 Denis Ollier
+#
+# This script is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+_xfconf_query()
+{
+    local cur prev words cword
+    _init_completion || return  # requires bash-completion >= 1.90 (2011-11-03)
+
+    #
+    # Get full completion context
+    #
+    local action channel property proptype
+    local array create recursive verbose
+    local set_count type_count
+
+    local i length
+    length=${#words[@]}
+    # Skip the last word if it is the one being completed
+    ((cword == length - 1)) && [ "${cur}" ] && ((length--))
+
+    for ((i = 0; i < length; i++)); do
+        case ${words[i]} in
+            '-h'|'--help')    return;;  # No completion for -h/--help
+            '-V'|'--version') return;;  # No completion for -V/--version
+
+            # See file xfconf-query/main.c:main() for actions priority order
+            '-m'|'--monitor') action='monitor';;
+            '-l'|'--list')    [[ ${action} != @('monitor') ]] && action='list';;
+            '-r'|'--reset')   [[ ${action} != @('monitor'|'list') ]] && action='reset';;
+            '-s'|'--set')     [[ ${action} != @('monitor'|'list'|'reset') ]] && action='set'
+                              ((set_count++));;  # Multiple set options are allowed to support arrays
+            '-T'|'--toggle')  [[ ${action} != @('monitor'|'list'|'reset'|'set') ]] && action='toggle';;
+
+            '-c'|'--channel')  channel=${words[i+1]};;
+            '-p'|'--property') property=${words[i+1]};;
+            '-t'|'--type')     proptype+=("${words[i+1]}")
+                               ((type_count++));;  # Multiple type options are allowed to support arrays
+
+            '-a'|'--force-array') array=1;;
+            '-n'|'--create')      create=1;;
+            '-R'|'--recursive')   recursive=1;;
+            '-v'|'--verbose')     verbose=1;;
+        esac
+    done
+
+    #
+    # Generate smart completions
+    #
+
+    # Non-ambiguous completions
+    case ${prev} in
+        '-c'|'--channel')
+            local channels
+
+            channels=(
+              $(LC_ALL=C command xfconf-query --list \
+              | { IFS='' read line  # Remove "Channels:" header
+                  while IFS='' read line; do printf '%s\n' "${line}"; done })
+            )
+
+            COMPREPLY=($(compgen -W '"${channels[@]}"' -- "${cur}"))
+            return
+        ;;
+        '-p'|'--property')
+            [ ! "${channel}" ] && return
+
+            local properties
+
+            if [ "${action}" = 'toggle' ]; then
+                # Keep only boolean properties for toggle action
+                properties=(
+                  $(LC_ALL=C command xfconf-query --list --verbose --channel="${channel}" \
+                  | while read propname propvalue; do
+                        if [[ "${propvalue}" == @('true'|'false') ]]; then
+                            printf '%s\n' "${propname}"
+                        fi
+                    done)
+                )
+            else
+                properties=($(LC_ALL=C command xfconf-query --list --channel="${channel}"))
+            fi
+
+            COMPREPLY=($(compgen -W '"${properties[@]}"' -- "${cur}"))
+            return
+        ;;
+        '-s'|'--set')
+            case ${proptype[set_count-1]} in
+                'bool') COMPREPLY=($(compgen -W '"true" "false"' -- "${cur}"));;
+                 # Can't guess wanted value for types other than booleans
+            esac
+            return
+        ;;
+        '-t'|'--type')
+            local types
+            # See file common/xfconf-gvaluefuncs.c:_xfconf_gtype_from_string()
+            # for the list of supported types
+            types=(
+              'string' 'int' 'double' 'bool' 'uint' 'uchar' 'char'
+              'uint16' 'int16' 'uint64' 'int64' 'float'
+            )
+            COMPREPLY=($(compgen -W '"${types[@]}"' -- "${cur}"))
+            return
+        ;;
+    esac
+
+    # Fallback to suggesting possible completions
+    local suggests
+
+    case ${action} in
+        'list')    ((!verbose)) && suggests=('-v' '--verbose');;
+
+        'reset')   ((!recursive)) && suggests=('-R' '--recursive');;
+
+        'set')     ((!array)) && suggests+=('-s' '--set')
+                   ((!array && (set_count <= 1))) && suggests+=('-a' '--force-array')
+                   ((!create)) && suggests+=('-n' '--create')
+                   ((set_count > type_count)) && suggests+=('-t' '--type')
+        ;;
+
+        '')  suggests=('-l' '--list' '-r' '--reset' '-s' '--set' '-T' '--toggle')
+             [ ! "${property}" ] && suggests+=('-m' '--monitor')
+             ((${#words[@]} == 2)) && suggests+=('-h' '--help' '-V' '--version')
+        ;;
+    esac
+
+    [ ! "${channel}"  ] && suggests+=('-c' '--channel')
+    [ ! "${property}" ] && [ "${channel}" ] && [ "${action}" != 'monitor' ] && suggests+=('-p' '--property')
+
+    COMPREPLY=($(compgen -W '"${suggests[@]}"' -- "${cur}"))
+}
+
+complete -F _xfconf_query xfconf-query
+
+# vi: set ft=sh et sw=4 ts=4:
