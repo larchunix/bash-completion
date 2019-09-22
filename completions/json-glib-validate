@@ -1,0 +1,46 @@
+#!/hint/bash -efu
+
+#
+# Bash programmable completion rules for json-glib-validate(1)
+#
+
+# Copyright (C) 2019 Denis Ollier
+#
+# This script is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+_json_glib_validate()
+{
+    local cur prev words cword
+    _init_completion || return  # requires bash-completion >= 1.90 (2011-11-03)
+
+    #
+    # Get full completion context
+    #
+    local i length
+    length=${#words[@]}
+    # Skip the last word if it is the one being completed
+    ((cword == length - 1)) && [ "${cur}" ] && ((length--))
+
+    for ((i = 0; i < length; i++)); do
+        case ${words[i]} in
+            '-h'|'--help') return;;  # No completion for -h/--help
+        esac
+    done
+
+    #
+    # Suggest possible completions
+    #
+    local suggests
+
+    ((${#words[@]} == 2)) && suggests=('-h' '--help')
+    COMPREPLY=($(compgen -W '"${suggests[@]}"' -- "${cur}"))
+
+    COMPREPLY+=($(compgen -f -- "${cur}"))
+}
+
+complete -o no-sort -F _json_glib_validate json-glib-validate
+
+# vi: set ft=sh et sw=4 ts=4:
